@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Calculadora de riesgo cardiovascular (Framingham)</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial;margin:0;padding:20px;background:#f6f8fb;color:#0b2545}
+    .container{max-width:780px;margin:20px auto;background:#fff;padding:20px;border-radius:10px;box-shadow:0 6px 24px rgba(11,37,69,0.08)}
+    h1{font-size:20px;margin:0 0 12px}
+    label{display:block;margin:10px 0 4px;font-weight:600}
+    input[type=text], select{width:100%;padding:10px;border:1px solid #d6dce8;border-radius:6px;font-size:15px}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .actions{display:flex;gap:8px;margin-top:14px}
+    button{background:#0b63ff;color:white;border:0;padding:10px 14px;border-radius:8px;cursor:pointer}
+    button.secondary{background:#eef2ff;color:#0b2545}
+    .result{margin-top:18px;padding:14px;border-radius:8px;background:#f1f7ff;border:1px solid #e0e9ff}
+    .note{font-size:13px;color:#23446a}
+    .small{font-size:13px;color:#567}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Calculadora de riesgo cardiovascular (Framingham, 10 años)</h1>
+    <p class="note">Introduce los valores en las cajas (acepta texto o números; por ejemplo "sí", "no", "hombre", "mujer" o valores numéricos como "55").</p>
+
+    <label for="age">Edad (años)</label>
+    <input id="age" type="text" placeholder="Ej. 57" />
+
+    <label for="sex">Sexo (hombre/mujer)</label>
+    <input id="sex" type="text" placeholder="Ej. hombre" />
+
+    <div class="row">
+      <div>
+        <label for="totChol">Colesterol total</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="totChol" type="text" placeholder="Ej. 210" />
+          <select id="totUnit" title="Unidad colesterol">
+            <option value="mg">mg/dL</option>
+            <option value="mmol">mmol/L</option>
+          </select>
+        </div>
+        <div id="err-totChol" class="small" style="color:#a33;margin-top:6px;display:none"></div>
+        <div id="warn-totChol" class="small" style="color:#c36;margin-top:6px;display:none"></div>
+        <div id="conv-tot" class="small" style="color:#23446a;margin-top:6px;display:none"></div>
+      </div>
+      <div>
+        <label for="hdl">HDL</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="hdl" type="text" placeholder="Ej. 45" />
+          <select id="hdlUnit" title="Unidad HDL">
+            <option value="mg">mg/dL</option>
+            <option value="mmol">mmol/L</option>
+          </select>
+        </div>
+        <div id="err-hdl" class="small" style="color:#a33;margin-top:6px;display:none"></div>
+        <div id="warn-hdl" class="small" style="color:#c36;margin-top:6px;display:none"></div>
+        <div id="conv-hdl" class="small" style="color:#23446a;margin-top:6px;display:none"></div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:12px;margin-top:12px;align-items:center">
+      <div class="small" style="flex:1">La conversión se aplicará automáticamente al cambiar la unidad.</div>
+      <label style="margin:0;flex:0">
+        Precisión:
+        <select id="precision">
+          <option value="0">0 decimales</option>
+          <option value="1">1 decimal</option>
+          <option value="2" selected>2 decimales</option>
+        </select>
+      </label>
+    </div>
+
+    <label for="sbp">Presión sistólica (mmHg)</label>
+    <input id="sbp" type="text" placeholder="Ej. 130" />
+
+    <div class="row">
+      <div>
+        <label for="treated">¿Recibe tratamiento antihipertensivo? (sí/no)</label>
+        <input id="treated" type="text" placeholder="sí o no" />
+      </div>
+      <div>
+        <label for="smoker">¿Fuma? (sí/no)</label>
+        <input id="smoker" type="text" placeholder="sí o no" />
+      </div>
+    </div>
+
+    <label for="diabetes">¿Diabetes? (sí/no)</label>
+    <input id="diabetes" type="text" placeholder="sí o no" />
+
+    <div class="actions">
+      <button id="calc" disabled>Calcular riesgo</button>
+      <button id="reset" class="secondary" type="button">Limpiar</button>
+      <button id="undo" class="secondary" type="button" disabled>Undo</button>
+      <button id="print" class="secondary" type="button">Imprimir</button>
+    </div>
+
+    <div id="output" class="result" style="display:none" aria-live="polite"></div>
+    <p class="small">Nota: se usa el algoritmo de Framingham (D'Agostino 2008) para riesgo cardiovascular a 10 años. Es una estimación y no sustituye la evaluación médica.</p>
+  </div>
+
+  <script>
+  // Coeficientes D'Agostino 2008 (general CVD, 10 años)
+    const COEFF = {
+      male: {
+        beta_age: 3.11296,
+        beta_tot: 1.85508,
+        beta_hdl: -0.93263,
+        beta_sbp_treated: 1.99881,
+        beta_sbp_untreated: 1.93303,
+        beta_smoke: 0.65451,
+        beta_diabetes: 0.57367,
+        mean_ln: 23.9802,
+        s0: 0.88431
+      },
+      female: {
+        beta_age: 2.72107,
+        beta_tot: 1.98007,
+        beta_hdl: -0.97168,
+        beta_sbp_treated: 2.82263,
+        beta_sbp_untreated: 2.76157,
+        beta_smoke: 0.52873,
+        beta_diabetes: 0.69154,
+        mean_ln: 26.1931,
+        s0: 0.94833
+      }
+    };
+
+    const byId = id => document.getElementById(id);
+
+    function parseNumber(text) {
+      if (text === null || text === undefined) return NaN;
+      // Allow numbers written with comma or dot and strip non-numeric characters except - and , .
+      const cleaned = String(text).trim().toLowerCase().replace(/[^0-9,\.\-]/g, '').replace(',', '.');
+      const n = parseFloat(cleaned);
+      return isNaN(n) ? NaN : n;
+    }
+
+    function mgdlToMmol(valueMgdl) {
+      // For cholesterol: mmol/L = mg/dL / 38.67
+      return valueMgdl / 38.67;
+    }
+
+    function mmolToMgdl(valueMmol) {
+      return valueMmol * 38.67;
+    }
+
+    // Robust detection & conversion: returns {valueMg: number, enteredUnit: 'mg'|'mmol'}
+    function detectAndConvert(fieldId) {
+      const raw = String(byId(fieldId).value || '').trim();
+      if (!raw) return {valueMg: NaN, enteredUnit: null};
+
+      // If user included unit text like 'mmol' or 'mg', detect it
+      const lower = raw.toLowerCase();
+      let unitHint = null;
+      if (lower.includes('mmol')) unitHint = 'mmol';
+      if (lower.includes('mg')) unitHint = 'mg';
+      // Remove any non-number, non-decimal, non-sign characters except unit letters
+      const numeric = raw.replace(/[a-zA-Zµ/º°\s]/g, '').replace(',', '.');
+      const num = parseFloat(numeric);
+      // If numeric parse failed, fallback to parseNumber (strips symbols)
+      const parsed = isNaN(num) ? parseNumber(raw) : num;
+
+      // If user selected unit in dropdown, prefer that
+      let dropdownUnit = null;
+      if (fieldId === 'totChol') dropdownUnit = byId('totUnit').value;
+      if (fieldId === 'hdl') dropdownUnit = byId('hdlUnit').value;
+
+      // Decide unit: dropdown -> explicit text -> magnitude heuristic
+      let unit = dropdownUnit || unitHint;
+      if (!unit) {
+        // Heuristic: typical mg/dL values are > 50 for total cholesterol and > 25 for HDL
+        if (!isNaN(parsed)) {
+          if (fieldId === 'totChol') unit = parsed > 50 ? 'mg' : 'mmol';
+          else if (fieldId === 'hdl') unit = parsed > 25 ? 'mg' : 'mmol';
+        }
+      }
+
+      let valueMg = NaN;
+      if (!isNaN(parsed)) {
+        if (unit === 'mmol') valueMg = mmolToMgdl(parsed);
+        else valueMg = parsed; // assume mg
+      }
+
+      // show conversion hint but do not overwrite user input
+      const hintEl = byId('conv-' + fieldId);
+      if (hintEl) {
+        if (!isNaN(valueMg)) {
+          const prec = parseInt(byId('precision').value || '2', 10);
+          const asMmol = +(mgdlToMmol(valueMg)).toFixed(prec);
+          const mgRounded = +(valueMg).toFixed(0);
+          hintEl.style.display = 'block';
+          hintEl.textContent = `Equivalente: ${mgRounded} mg/dL (${asMmol} mmol/L)`;
+        } else {
+          hintEl.style.display = 'none'; hintEl.textContent = '';
+        }
+      }
+
+      return {valueMg, enteredUnit: unit};
+    }
+
+    function parseYesNo(text) {
+      if (typeof text === 'boolean') return text;
+      if (!text) return false;
+      const t = String(text).trim().toLowerCase();
+      if (['si','sí','s','yes','y'].includes(t)) return true;
+      if (['no','n','not','nah','false','0'].includes(t)) return false;
+      // If user typed a number, treat >0 as true
+      const num = parseNumber(t);
+      if (!isNaN(num)) return num !== 0;
+      return false; // default
+    }
+
+    function parseSex(text) {
+      if (!text) return null;
+      const t = String(text).trim().toLowerCase();
+      if (['m','h','hombre','male','masculino'].includes(t)) return 'male';
+      if (['f','mujer','female','femme','feminino'].includes(t)) return 'female';
+      return null;
+    }
+
+    function calcRisk(values) {
+      const sexKey = values.sex;
+      if (!sexKey || !COEFF[sexKey]) throw new Error('Sexo inválido');
+      const c = COEFF[sexKey];
+
+      const lnAge = Math.log(values.age);
+      const lnTot = Math.log(values.totChol);
+      const lnHdl = Math.log(values.hdl);
+      const lnSbp = Math.log(values.sbp);
+
+      const betaSbp = values.treated ? c.beta_sbp_treated : c.beta_sbp_untreated;
+
+      const sum = c.beta_age * lnAge + c.beta_tot * lnTot + c.beta_hdl * lnHdl + betaSbp * lnSbp + c.beta_smoke * (values.smoker ? 1 : 0) + c.beta_diabetes * (values.diabetes ? 1 : 0);
+
+      const risk = 1 - Math.pow(c.s0, Math.exp(sum - c.mean_ln));
+      return risk; // fraction 0..1
+    }
+
+    function categorizeRisk(pct) {
+      if (pct < 0.05) return {cat: 'Bajo', desc: 'Riesgo bajo (menos del 5% a 10 años)'};
+      if (pct < 0.10) return {cat: 'Moderado', desc: 'Riesgo moderado (5–10% a 10 años)'};
+      if (pct < 0.20) return {cat: 'Alto', desc: 'Riesgo alto (10–20% a 10 años)'};
+      return {cat: 'Muy alto', desc: 'Riesgo muy alto (≥20% a 10 años)'};
+    }
+
+    function adviceForCategory(cat) {
+      // Return up to 5 short sentences in Spanish depending on category
+      switch(cat) {
+        case 'Bajo':
+          return 'Riesgo estimado bajo. Mantén hábitos saludables: dieta equilibrada, actividad física regular y evitar el tabaco. Controla tu colesterol y presión arterial periódicamente. Revisa con tu médico según edad y factores de riesgo. ';
+        case 'Moderado':
+          return 'Riesgo moderado: considera mejorar dieta y ejercicio y evitar el tabaco. Controla el colesterol, la presión arterial y la glucemia con regularidad. Habla con tu médico para valorar medidas preventivas y seguimiento. Mantén peso saludable y reduce el consumo de sal y alcohol.';
+        case 'Alto':
+          return 'Riesgo alto: es importante actuar: dieta hipolipemiante, aumentar actividad física y dejar de fumar si procede. Solicita evaluación médica para valorar tratamiento (p. ej. estatinas o control de la presión). Monitorea colesterol, presión y glucemia más a menudo. Adopta cambios de estilo de vida y sigue las indicaciones del profesional.';
+        case 'Muy alto':
+          return 'Riesgo muy alto: consulta con urgencia a tu médico para valoración y probable tratamiento farmacológico. Cambios en el estilo de vida (dieta, ejercicio, dejar de fumar) son imprescindibles. Revisa controles de colesterol, presión arterial y diabetes con frecuencia. Sigue estrictamente las recomendaciones médicas para reducir riesgo cardiovascular.';
+        default:
+          return '';
+      }
+    }
+
+    function showOutput(html) {
+      const out = byId('output');
+      out.style.display = 'block';
+      out.innerHTML = html;
+    }
+
+    // Real-time validation and UI helpers
+    const inputsToWatch = ['age','sex','totChol','hdl','sbp','treated','smoker','diabetes','totUnit','hdlUnit'];
+
+    function showFieldError(id, msg) {
+      const el = byId('err-' + id);
+      if (!el) return;
+      if (msg) { el.style.display = 'block'; el.textContent = msg; }
+      else { el.style.display = 'none'; el.textContent = ''; }
+    }
+
+    function validateAll() {
+      let ok = true;
+      const age = parseNumber(byId('age').value);
+      if (isNaN(age) || age <= 0) { showFieldError('age', 'Edad inválida'); ok = false; } else showFieldError('age','');
+
+      const sex = parseSex(byId('sex').value);
+      if (!sex) { showFieldError('sex', 'Introduce "hombre" o "mujer"'); ok = false; } else showFieldError('sex','');
+
+  // Use detectAndConvert to support mmol/mg and free-text units
+      const totConv = detectAndConvert('totChol');
+      if (isNaN(totConv.valueMg) || totConv.valueMg <= 0) { showFieldError('totChol','Colesterol inválido'); ok = false; } else showFieldError('totChol','');
+      // Range warnings for colesterol total
+      const warnTotEl = byId('warn-totChol');
+      if (!isNaN(totConv.valueMg)) {
+        if (totConv.valueMg >= 240) { warnTotEl.style.display = 'block'; warnTotEl.textContent = 'Alto: colesterol total ≥240 mg/dL.'; }
+        else if (totConv.valueMg >= 200) { warnTotEl.style.display = 'block'; warnTotEl.textContent = 'Límite alto: colesterol total 200–239 mg/dL.'; }
+        else { warnTotEl.style.display = 'none'; warnTotEl.textContent = ''; }
+      } else { warnTotEl.style.display = 'none'; warnTotEl.textContent = ''; }
+
+      const hdlConv = detectAndConvert('hdl');
+      if (isNaN(hdlConv.valueMg) || hdlConv.valueMg <= 0) { showFieldError('hdl','HDL inválido'); ok = false; } else showFieldError('hdl','');
+      const warnHdlEl = byId('warn-hdl');
+      if (!isNaN(hdlConv.valueMg)) {
+        if (hdlConv.valueMg < 40) { warnHdlEl.style.display = 'block'; warnHdlEl.textContent = 'Bajo HDL: <40 mg/dL (riesgo aumentado).'; }
+        else { warnHdlEl.style.display = 'none'; warnHdlEl.textContent = ''; }
+      } else { warnHdlEl.style.display = 'none'; warnHdlEl.textContent = ''; }
+
+      const sbp = parseNumber(byId('sbp').value);
+      if (isNaN(sbp) || sbp <= 0) { showFieldError('sbp','Presión sistólica inválida'); ok = false; } else showFieldError('sbp','');
+
+      byId('calc').disabled = !ok;
+      return ok;
+    }
+
+    inputsToWatch.forEach(id => {
+      const el = byId(id);
+      if (!el) return;
+      el.addEventListener('input', validateAll);
+    });
+
+    // When unit selection changes, update conversion hint but do not overwrite user input
+    // History stack for undo (stores {fieldId, previousValue})
+    const convHistory = [];
+    function pushHistory(fieldId, prev) {
+      convHistory.push({fieldId, prev});
+      byId('undo').disabled = false;
+    }
+
+    function doConvertAndRecord(fieldId, convValueMg) {
+      const unitSelect = fieldId === 'totChol' ? 'totUnit' : 'hdlUnit';
+      const unit = byId(unitSelect).value;
+      const prev = byId(fieldId).value;
+      // record previous only if different
+      if (String(prev) !== String(prev)) {
+        // noop placeholder (keeps lint happy)
+      }
+      pushHistory(fieldId, prev);
+      if (unit === 'mmol') {
+        byId(fieldId).value = (+(mgdlToMmol(convValueMg))).toFixed(parseInt(byId('precision').value,10));
+      } else {
+        byId(fieldId).value = Math.round(convValueMg);
+      }
+    }
+
+    byId('totUnit').addEventListener('change', () => {
+      const conv = detectAndConvert('totChol');
+      if (!isNaN(conv.valueMg)) {
+        doConvertAndRecord('totChol', conv.valueMg);
+      }
+      detectAndConvert('totChol'); validateAll();
+    });
+
+    byId('hdlUnit').addEventListener('change', () => {
+      const conv = detectAndConvert('hdl');
+      if (!isNaN(conv.valueMg)) {
+        doConvertAndRecord('hdl', conv.valueMg);
+      }
+      detectAndConvert('hdl'); validateAll();
+    });
+
+    // Undo handler
+    byId('undo').addEventListener('click', () => {
+      const last = convHistory.pop();
+      if (!last) return;
+      byId(last.fieldId).value = last.prev;
+      detectAndConvert(last.fieldId);
+      if (convHistory.length === 0) byId('undo').disabled = true;
+      validateAll();
+    });
+
+    function showAsMmol(mgdl) { return +(mgdlToMmol(mgdl)).toFixed(2); }
+    function mmollToShow(mmol) { return +(mmolToMgdl(mmol)).toFixed(0); }
+
+    // Print button
+    byId('print').addEventListener('click', () => { window.print(); });
+
+    byId('calc').addEventListener('click', () => {
+      // Gather inputs
+      const age = parseNumber(byId('age').value);
+      const sex = parseSex(byId('sex').value);
+  // Convert inputs robustly to mg/dL for internal calculations
+  const totC = detectAndConvert('totChol');
+  const hdlC = detectAndConvert('hdl');
+  const totChol = totC.valueMg;
+  const hdl = hdlC.valueMg;
+      const sbp = parseNumber(byId('sbp').value);
+      const treated = parseYesNo(byId('treated').value);
+      const smoker = parseYesNo(byId('smoker').value);
+      const diabetes = parseYesNo(byId('diabetes').value);
+
+      const errors = [];
+      if (!sex) errors.push('Sexo inválido: escribe "hombre" o "mujer".');
+      if (isNaN(age) || age <= 0) errors.push('Edad inválida.');
+      if (isNaN(totChol) || totChol <= 0) errors.push('Colesterol total inválido.');
+      if (isNaN(hdl) || hdl <= 0) errors.push('HDL inválido.');
+      if (isNaN(sbp) || sbp <= 0) errors.push('Presión sistólica inválida.');
+
+      if (errors.length) {
+        showOutput('<strong>Errores:</strong><br>' + errors.map(e => '<div>' + e + '</div>').join(''));
+        return;
+      }
+
+      // Age outside validation range warning (Framingham typical range 30-74)
+      let warning = '';
+      if (age < 30 || age > 74) {
+        warning = '<div class="small"><em>Nota:</em> la calculadora está diseñada para 10‑años y suele validarse en rangos aproximadamente 30–74 años; el resultado fuera de ese rango puede ser menos preciso.</div>';
+      }
+
+      try {
+        const risk = calcRisk({age, sex, totChol, hdl, sbp, treated, smoker, diabetes});
+        const pct = +(risk * 100).toFixed(1);
+        const cat = categorizeRisk(risk).cat;
+        const desc = categorizeRisk(risk).desc;
+        const advice = adviceForCategory(cat);
+
+        const html = `<div><strong>Riesgo estimado a 10 años:</strong> ${pct}%</div>` +
+          `<div><strong>Categoría:</strong> ${cat} — ${desc}</div>` +
+          `<div style="margin-top:8px"><strong>Consejo:</strong> ${advice}</div>` + warning;
+
+        showOutput(html);
+      } catch (err) {
+        showOutput('<strong>Error:</strong> ' + err.message);
+      }
+    });
+
+    byId('reset').addEventListener('click', () => {
+      ['age','sex','totChol','hdl','sbp','treated','smoker','diabetes'].forEach(id => byId(id).value = '');
+      const out = byId('output'); out.style.display = 'none'; out.innerHTML = '';
+      // clear undo history
+      convHistory.length = 0; byId('undo').disabled = true;
+    });
+  </script>
+</body>
+</html>
