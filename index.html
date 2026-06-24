@@ -224,9 +224,13 @@
       if (!sexKey || !COEFF[sexKey]) throw new Error('Sexo inválido');
       const c = COEFF[sexKey];
 
+      // The Framingham formula expects cholesterol values in mmol/L.
+      const totMmol = values.totChol / 38.67;
+      const hdlMmol = values.hdl / 38.67;
+
       const lnAge = Math.log(values.age);
-      const lnTot = Math.log(values.totChol);
-      const lnHdl = Math.log(values.hdl);
+      const lnTot = Math.log(totMmol);
+      const lnHdl = Math.log(hdlMmol);
       const lnSbp = Math.log(values.sbp);
 
       const betaSbp = values.treated ? c.beta_sbp_treated : c.beta_sbp_untreated;
